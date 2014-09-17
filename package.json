@@ -46,6 +46,7 @@
     "request": "~2.36.0",
     "q": "~1.0.1",
     "dateformat": "~1.0.7-1.2.3",
-    "tedious": "~1.5.1"
+    "tedious": "~1.5.1",
+    "mssql-simple": "~1.0.8"
   }
 }
