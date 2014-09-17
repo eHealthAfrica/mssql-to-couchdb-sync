@@ -165,7 +165,7 @@ var getRecord = function(table, key, value) {
 
 var createCase = function(patient) {
   //TODO: use variable to hold table field name such as ''vContactId'',
-  var reportedCase = { patient: patient };
+  var reportedCase = { patient: patient, doc_type: "case" };
   var contactPromise = getRecord(contactTable, 'vContactId', patient.contactId);
   var deferred = q.defer();
   contactPromise
