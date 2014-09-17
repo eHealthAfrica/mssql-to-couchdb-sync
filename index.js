@@ -77,8 +77,8 @@ var propertyMap = {
     dtModifiedon: 'modifiedOn'
   },
   patient: {
-    vPID: 'patient_id',
-    vPName: 'patient_name',
+    vPID: 'patientId',
+    vPName: 'patientName',
     nPAge: 'age',
     vPGender: 'gender',
     vPAddress: 'address',
@@ -156,7 +156,7 @@ var getRecord = function(table, key, value) {
       doc = recordToDoc(table, rows[0]);
       deferred.resolve(doc);
     } else {
-      deferred.reject('record not found: table: ' + table + ', PK: ' + key);
+      deferred.reject('record not found: table: ' + table + ', PK: ' + key + ', value: '+value);
     }
   });
   connection.execSql(request);
@@ -164,28 +164,36 @@ var getRecord = function(table, key, value) {
 };
 
 var createCase = function(patient) {
-  //var promises = [];
   //TODO: use variable to hold table field name such as ''vContactId'',
-  //TODO: attach other patient properties.
-  //var responsePromise = getRecord('Patient_ResponseLog', 'vPID', patient.patent_id);
   var reportedCase = { patient: patient };
   var contactPromise = getRecord(contactTable, 'vContactId', patient.contactId);
-  return contactPromise
+  var deferred = q.defer();
+  contactPromise
     .then(function(res) {
       reportedCase.contact = res;
-      return reportedCase;
+      getRecord('Patient_ResponseLog', 'vPID', patient.patientId)
+        .then(function(resp) {
+          reportedCase.response = resp;
+          deferred.resolve(reportedCase);
+        })
+        .catch(function(err) {
+          console.error(err);
+          deferred.resolve(reportedCase);
+        });
     });
+  return deferred.promise;
 };
 
 var generateCases = function(patients) {
   var cases = [];
   var deferred = q.defer();
+
   function getNextCase(casePatients, index) {
     var nextIndex = index - 1;
     if (nextIndex >= 0) {
       var patient = casePatients[nextIndex];
       createCase(patient)
-        .then(function(res){
+        .then(function(res) {
           cases.push(res);
         })
         .finally(function() {
@@ -195,18 +203,21 @@ var generateCases = function(patients) {
       deferred.resolve(cases);
     }
   }
+
   getNextCase(patients, patients.length);
   return deferred.promise;
 };
 
 function executeStatement() {
   var table = 'Patient_Mst';
-  var request = new Request("SELECT * FROM Patient_Mst", function(err, rowCount, rows) {
+
+  var request = new Request("SELECT * FROM "+table, function(err, rowCount, rows) {
     if (err) {
       console.log(err);
       return;
     }
     var today = new Date('2014-09-16');//TODO: generate current date automatically.
+
     var patients = rows
       .map(function(row) {
         return recordToDoc(table, row);
@@ -215,14 +226,16 @@ function executeStatement() {
         return p.createdOn >= today;
       });
 
+
     generateCases(patients)
-      .then(function(res){
-        console.log(res);
+      .then(function(res) {
+        console.log(res.length);
+        //TODO: push to couchdb
       })
-      .catch(function(err){
+      .catch(function(err) {
         console.error(err);
       })
-      .finally(function(){
+      .finally(function() {
         console.info('done');
       });
   });
