@@ -5,9 +5,20 @@ var Request = require('tedious').Request;
 var q = require("q");
 var pouchdb = require('pouchdb');
 var dotenv = require('dotenv');
+var log4js = require('log4js');
 dotenv.load();
+
+var LOG_CATEGORY = 'mssql-to-couchdb-sync';
+log4js.configure({
+  appenders: [
+    { type: 'console' },
+    { type: 'file', filename: 'mssql-to-couchdb.log', category: LOG_CATEGORY }
+  ]
+});
+var logger = log4js.getLogger(LOG_CATEGORY);
 var DELAY = 30000;//30 secs
-var COUCHDB_URL = process.env.DB_URL;
+var DEV_DB = process.env.DB_URL;
+var PROD_DB = process.env.PROD_DB;
 var SQL_USER = process.env.SQL_USER;
 var SQL_PASS = process.env.SQL_PASS;
 var SQL_HOST = process.env.SQL_HOST;
@@ -137,13 +148,13 @@ var cleanUpRecord = function(record, type) {
 
 var recordToDoc = function(type, record) {
   if (typeof record === 'undefined') {
-    console.log('record is undefined.');
+    logger.warn('record is undefined.');
     return;
   }
   if (dbNames.indexOf(type) !== -1) {
     return cleanUpRecord(record, type);
   } else {
-    console.log('unknown document type: ' + type);
+    logger.warn('unknown document type: ' + type);
   }
 };
 
@@ -182,7 +193,7 @@ var createCase = function(patient) {
           deferred.resolve(reportedCase);
         })
         .catch(function(err) {
-          console.log(err);
+          logger.error(err);
           deferred.resolve(reportedCase);
         });
     });
@@ -192,11 +203,12 @@ var createCase = function(patient) {
 var generateCases = function(patients) {
   var cases = [];
   var deferred = q.defer();
+
   function getNextCase(casePatients, index) {
     var nextIndex = index - 1;
     if (nextIndex >= 0) {
       var patient = casePatients[nextIndex];
-      console.log('creating case for patient : ' + patient.patientId);
+      logger.info('creating case for patient : ' + patient.patientId);
       createCase(patient)
         .then(function(res) {
           cases.push(res);
@@ -208,15 +220,16 @@ var generateCases = function(patients) {
       deferred.resolve(cases);
     }
   }
+
   getNextCase(patients, patients.length);
   return deferred.promise;
 };
 
 function pullAndPushToCouchdb() {
-  inProgress  = true;
-  var request = new Request("SELECT * FROM "+patientTable, function(err, rowCount, rows) {
+  inProgress = true;
+  var request = new Request("SELECT * FROM " + patientTable, function(err, rowCount, rows) {
     if (err) {
-      console.log(err);
+      logger.error(err);
       inProgress = false;
       return;
     }
@@ -224,25 +237,25 @@ function pullAndPushToCouchdb() {
       .map(function(row) {
         return recordToDoc(patientTable, row);
       })
-      .filter(function(p){
+      .filter(function(p) {
+        //TODO: figure this out.
         //FIX: trace rogue patient document.
         return  p.patientId !== 'P090400008'
       });
     getNewPatients('test', patients)
       .then(function(newPatients) {
-        console.log('Generating cases for ' + newPatients.length + ' new patients, please wait ....');
+        logger.info('Generating cases for ' + newPatients.length + ' new patients, please wait ....');
         return generateCases(newPatients)
           .then(function(newCases) {
-            console.log('Generated '+newCases.length+' new cases.');
+            logger.info('Generated ' + newCases.length + ' new cases.');
             return postToLocalCouch(newCases)
-              .then(function() {
-                console.log('New cases uploaded to local db successfully.');
+              .then(function(res) {
+                inProgress = false;
+                logger.info('New cases uploaded to local db successfully.'+JSON.stringify(res));
               })
               .catch(function(err) {
-                console.error('Push to local db failed: ' + err);
-              })
-              .finally(function(){
                 inProgress = false;
+                logger.error('Push to local db failed: ' + err);
               });
             //TODO: uncomment to post to remote couchdb
 //        postToCouchdb(res)
@@ -254,13 +267,13 @@ function pullAndPushToCouchdb() {
 //          });
           })
           .catch(function(err) {
-            console.error('Case Generation Failed:' + err);
+            logger.error('Case Generation Failed:' + err);
             inProgress = false;
           });
       })
       .catch(function() {
         inProgress = false;
-        console.log('Error while filtering new patients.', err);
+        logger.info('Error while filtering new patients.', err);
       });
 
   });
@@ -268,7 +281,7 @@ function pullAndPushToCouchdb() {
 };
 
 var postToCouchdb = function(docs) {
-  var db = new pouchdb(COUCHDB_URL);
+  var db = new pouchdb(DEV_DB);
   var contactIds = docs.map(function(doc) {
     return doc.contact.contactId;
   });
@@ -287,7 +300,7 @@ var postToCouchdb = function(docs) {
           var contact = newCase.contact;
           return contact && contact.contactId && remoteContactIds.indexOf(contact.contactId) === -1;
         });
-      console.info(newCases.length + ' New Cases to be uploaded to couchdb.');
+      logger.info(newCases.length + ' New Cases to be uploaded to couchdb.');
       //push new cases to couchdb
       return db.bulkDocs(newCases);
     });
@@ -317,18 +330,28 @@ var postToLocalCouch = function(sqlCases) {
 };
 
 var replicateLocalToRemote = function() {
-  console.log('Replicating to remote db.');
-  pouchdb.replicate('test', COUCHDB_URL)
+  logger.info('Replicating to remote production db.');
+  pouchdb.replicate('test', PROD_DB)
     .then(function(res) {
-      console.log('Replication was successful: ' + JSON.stringify(res));
+      logger.info('Replication was successful: ' + JSON.stringify(res));
     })
     .catch(function(err) {
-      console.error('Replication Failed: ' + err);
+      logger.error('Replication Failed: ' + err);
+    })
+    .finally(function() {
+      logger.info('Replicating to remote dev db.');
+      pouchdb.replicate('test', DEV_DB)
+        .then(function(res) {
+          logger.info('Replication was successful: ' + JSON.stringify(res));
+        })
+        .catch(function(err) {
+          logger.error('Replication Failed: ' + err);
+        });
     });
 };
 
 var getNewPatients = function(dbUrl, patients) {
-  console.log('filtering patients that exists on db already.');
+  logger.info('filtering patients that already exist on db.');
   var db = new pouchdb(dbUrl);
   var patientCaseMapFun = function(doc) {
     if (doc.doc_type === 'case') {
@@ -351,28 +374,20 @@ var getNewPatients = function(dbUrl, patients) {
 
 //Main Program
 
-
-//connection.on('connect', function(err) {
-//    if (err) {
-//      console.error(err);
-//      return;
-//    }
-//    //pullAndPushToCouchdb();
-//
-//    var rule = new schedule.RecurrenceRule();
-//    rule.minute = 5;
-//    var j = schedule.scheduleJob(rule, function() {
-//      console.log('The answer to life, the universe, and everything!');
-//    });
-//  }
-//);
+connection.on('connect', function(err) {
+    if (err) {
+      logger.error(err);
+      return;
+    }
+    setInterval(function() {
+      if (inProgress === true) {
+        logger.info('Last job is still in progress.');
+        return;
+      }
+      pullAndPushToCouchdb();
+    }, DELAY);
+  }
+);
 
 //replicateLocalToRemote();
 
-setInterval(function(){
-  if(inProgress === true){
-    console.log('Last job is still in progress.');
-    return;
-  }
-  pullAndPushToCouchdb();
-}, DELAY);
