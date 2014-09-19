@@ -146,6 +146,21 @@ var cleanUpRecord = function(record, type) {
   return cleanRecord;
 };
 
+var addCaseStatus = function(caseRecord) {
+  if (caseRecord.response) {
+    if (caseRecord.response.caseStatus !== 'FOLLOW UP COMPLETE') {
+      caseRecord.response.caseStatus = 'open';
+    } else {
+      caseRecord.response.caseStatus = 'close';
+    }
+  } else {
+    caseRecord.response = {
+      caseStatus: 'open'
+    };
+  }
+  return caseRecord;
+};
+
 var recordToDoc = function(type, record) {
   if (typeof record === 'undefined') {
     logger.warn('record is undefined.');
@@ -190,10 +205,12 @@ var createCase = function(patient) {
       getRecord(patientRespLog, 'vPID', patient.patientId)
         .then(function(resp) {
           reportedCase.response = resp;
+          reportedCase = addCaseStatus(reportedCase);
           deferred.resolve(reportedCase);
         })
         .catch(function(err) {
-          logger.error(err);
+          logger.warn(err);
+          reportedCase = addCaseStatus(reportedCase);
           deferred.resolve(reportedCase);
         });
     });
@@ -247,11 +264,10 @@ function pullAndPushToCouchdb() {
         logger.info('Generating cases for ' + newPatients.length + ' new patients, please wait ....');
         return generateCases(newPatients)
           .then(function(newCases) {
-            logger.info('Generated ' + newCases.length + ' new cases.');
             return postToLocalCouch(newCases)
               .then(function(res) {
                 inProgress = false;
-                logger.info('New cases uploaded to local db successfully.'+JSON.stringify(res));
+                logger.info(res.length+' New cases uploaded to local db successfully.');
               })
               .catch(function(err) {
                 inProgress = false;
@@ -321,11 +337,13 @@ var postToLocalCouch = function(sqlCases) {
         });
       var newCases = sqlCases.filter(function(c) {
         var contact = c.contact;
-        return contact && contact.contactId &&
-          uploadedCasesContactIds.indexOf(contact.contactId) === -1;
+        return uploadedCasesContactIds.indexOf(contact.contactId) === -1;
       });
-      console.info(newCases.length + ' New Cases to be uploaded to local couchdb.');
-      return db.bulkDocs(newCases);
+      logger.info(newCases.length + ' New Cases to be uploaded to local couchdb.');
+      var cases = newCases.map(function(caseDoc){
+        return addCaseStatus(caseDoc);
+      });
+      return db.bulkDocs(cases);
     });
 };
 
@@ -365,7 +383,7 @@ var getNewPatients = function(dbUrl, patients) {
           return row.key;
         });
       var newPatients = patients.filter(function(p) {
-        return p && p.patientId && patientIds.indexOf(p.patientId) === -1;
+        return patientIds.indexOf(p.patientId) === -1;
       });
       return newPatients;
     });
@@ -375,10 +393,12 @@ var getNewPatients = function(dbUrl, patients) {
 //Main Program
 
 connection.on('connect', function(err) {
+    logger.info('MS SQL to Couchdb Sync Started.');
     if (err) {
       logger.error(err);
       return;
     }
+    logger.info('Connection was successful.');
     setInterval(function() {
       if (inProgress === true) {
         logger.info('Last job is still in progress.');
@@ -391,3 +411,57 @@ connection.on('connect', function(err) {
 
 //replicateLocalToRemote();
 
+
+//var getCasesByDate = function(){
+//  var db = pouchdb(DEV_DB);
+//  var patientCaseMapFun = function(doc) {
+//    var queryDate = new Date('2014-09-17');
+//    if (doc.doc_type === 'case') {
+//      var createdDate = new Date(doc.contact.createdOn);
+//      if(createdDate.getFullYear() === queryDate.getFullYear()
+//        && createdDate.getMonth() === queryDate.getMonth()
+//        && createdDate.getDate() >= queryDate.getDate()){
+//        emit(createdDate.getDate(), doc);
+//      }
+//    }
+//  };
+//  db.query(patientCaseMapFun, { include_docs: true })
+//    .then(function(res){
+//      var cases = res.rows
+//        .map(function(row){
+//          return row.doc;
+//        });
+//
+//      var formattedCases = cases.map(function(doc){
+//          return  {
+//          PatientId: doc.patient.patientId,
+//          PatientName: doc.patient.patientName,
+//          PatientAge: doc.patient.age,
+//          PatientGender: doc.patient.gender,
+//          PatientAddress: doc.patient.address,
+//          PatientProvince: doc.patient.provinceCode,
+//          PatientDistrict: doc.patient.districtCode,
+//          PatientChiefdom: doc.patient.chiefdomCode,
+//          PatientPhoneNo: doc.patient.phoneNo,
+//          patientStatus: doc.patient.patientStatus,
+//          PatientFamilyPhoneNo: doc.patient.familyPhoneNo,
+//
+//          ContactName: doc.contact.name,
+//          ContactId: doc.contact.contactId,
+//          ContactAddress: doc.contact.address,
+//          ContactPhoneNo: doc.contact.phoneNo,
+//          ContactOtherPhoneNo: doc.contact.otherPhoneNo,
+//          ContactProvinceCode: doc.contact.province_code,
+//          ContactDistrictCode: doc.contact.district_code,
+//          ContactChiefdomCode: doc.contact.chiefdom_code
+//        };
+//      });
+//
+//      console.log(formattedCases);
+//    })
+//    .catch(function(err){
+//      console.log(err);
+//    });
+//};
+//
+//getCasesByDate();
