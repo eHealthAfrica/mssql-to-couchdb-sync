@@ -33,7 +33,6 @@ var config = {
     rowCollectionOnRequestCompletion: true
   }
 };
-var connection = new Connection(config);
 var contactTable = 'ContactDtls';
 var patientTable = 'Patient_Mst';
 var patientRespLog = 'Patient_ResponseLog';
@@ -220,7 +219,6 @@ var createCase = function(patient) {
 var generateCases = function(patients) {
   var cases = [];
   var deferred = q.defer();
-
   function getNextCase(casePatients, index) {
     var nextIndex = index - 1;
     if (nextIndex >= 0) {
@@ -237,7 +235,6 @@ var generateCases = function(patients) {
       deferred.resolve(cases);
     }
   }
-
   getNextCase(patients, patients.length);
   return deferred.promise;
 };
@@ -267,7 +264,7 @@ function pullAndPushToCouchdb() {
             return postToLocalCouch(newCases)
               .then(function(res) {
                 inProgress = false;
-                logger.info(res.length+' New cases uploaded to local db successfully.');
+                logger.info(res.length + ' New cases uploaded to local db successfully.');
               })
               .catch(function(err) {
                 inProgress = false;
@@ -340,7 +337,7 @@ var postToLocalCouch = function(sqlCases) {
         return uploadedCasesContactIds.indexOf(contact.contactId) === -1;
       });
       logger.info(newCases.length + ' New Cases to be uploaded to local couchdb.');
-      var cases = newCases.map(function(caseDoc){
+      var cases = newCases.map(function(caseDoc) {
         return addCaseStatus(caseDoc);
       });
       return db.bulkDocs(cases);
@@ -349,7 +346,7 @@ var postToLocalCouch = function(sqlCases) {
 
 var replicateLocalToRemote = function() {
   logger.info('Replicating to remote production db.');
-  pouchdb.replicate('test', PROD_DB)
+  pouchdb.replicate('test', PROD_DB, { since: 6025 })
     .then(function(res) {
       logger.info('Replication was successful: ' + JSON.stringify(res));
     })
@@ -392,8 +389,11 @@ var getNewPatients = function(dbUrl, patients) {
 
 //Main Program
 
+logger.info('MS SQL to Couchdb Sync Started.');
+logger.info('connecting to MS SQL server, please wait ..');
+var connection = new Connection(config);
 connection.on('connect', function(err) {
-    logger.info('MS SQL to Couchdb Sync Started.');
+
     if (err) {
       logger.error(err);
       return;
@@ -410,58 +410,3 @@ connection.on('connect', function(err) {
 );
 
 //replicateLocalToRemote();
-
-
-//var getCasesByDate = function(){
-//  var db = pouchdb(DEV_DB);
-//  var patientCaseMapFun = function(doc) {
-//    var queryDate = new Date('2014-09-17');
-//    if (doc.doc_type === 'case') {
-//      var createdDate = new Date(doc.contact.createdOn);
-//      if(createdDate.getFullYear() === queryDate.getFullYear()
-//        && createdDate.getMonth() === queryDate.getMonth()
-//        && createdDate.getDate() >= queryDate.getDate()){
-//        emit(createdDate.getDate(), doc);
-//      }
-//    }
-//  };
-//  db.query(patientCaseMapFun, { include_docs: true })
-//    .then(function(res){
-//      var cases = res.rows
-//        .map(function(row){
-//          return row.doc;
-//        });
-//
-//      var formattedCases = cases.map(function(doc){
-//          return  {
-//          PatientId: doc.patient.patientId,
-//          PatientName: doc.patient.patientName,
-//          PatientAge: doc.patient.age,
-//          PatientGender: doc.patient.gender,
-//          PatientAddress: doc.patient.address,
-//          PatientProvince: doc.patient.provinceCode,
-//          PatientDistrict: doc.patient.districtCode,
-//          PatientChiefdom: doc.patient.chiefdomCode,
-//          PatientPhoneNo: doc.patient.phoneNo,
-//          patientStatus: doc.patient.patientStatus,
-//          PatientFamilyPhoneNo: doc.patient.familyPhoneNo,
-//
-//          ContactName: doc.contact.name,
-//          ContactId: doc.contact.contactId,
-//          ContactAddress: doc.contact.address,
-//          ContactPhoneNo: doc.contact.phoneNo,
-//          ContactOtherPhoneNo: doc.contact.otherPhoneNo,
-//          ContactProvinceCode: doc.contact.province_code,
-//          ContactDistrictCode: doc.contact.district_code,
-//          ContactChiefdomCode: doc.contact.chiefdom_code
-//        };
-//      });
-//
-//      console.log(formattedCases);
-//    })
-//    .catch(function(err){
-//      console.log(err);
-//    });
-//};
-//
-//getCasesByDate();
