@@ -6,3 +6,4 @@ coverage
 build
 npm-debug.log
 *.env
+mssql-to-couchdb.log
