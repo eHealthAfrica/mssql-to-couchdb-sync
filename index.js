@@ -3,7 +3,7 @@
 var Connection = require('tedious').Connection;
 var Request = require('tedious').Request;
 var q = require("q");
-//var pouchdb = require('pouchdb');
+var pouchdb = require('pouchdb');
 var dotenv = require('dotenv');
 var log4js = require('log4js');
 dotenv.load();
@@ -248,22 +248,19 @@ var generateCases = function(patients) {
 
 function pullAndPushToCouchdb() {
   inProgress = true;
-  var request = new Request("SELECT * FROM " + contactTable, function(err, rowCount, rows) {
+  var request = new Request("SELECT * FROM " + patientTable, function(err, rowCount, rows) {
     if (err) {
       logger.error(err);
       inProgress = false;
       return;
     }
-
-    var contacts = rows
+    var patients = rows
       .map(function(row) {
-        return recordToDoc(contactTable, row);
+        return recordToDoc(patientTable, row);
       });
     //TODO: change db name from 'test' remote db address.
-    getCasesByContactId(contacts)
+    getNewPatients(LOCAL_DB, patients)
       .then(function(newCases) {
-        console.log(newCases);
-        return;
         return generateCases(newCases)
           .then(function(newCases) {
             return postToLocalCouch(newCases)
@@ -370,46 +367,46 @@ var postToLocalCouch = function(sqlCases) {
 //    });
 //};
 
-//var getNewPatients = function(dbUrl, patients) {
-//  var db = new pouchdb(dbUrl);
-//  var patientCaseMapFun = function(doc) {
-//    if (doc.doc_type === 'case' && doc.patient) {
-//      emit(doc.patient.patientId, doc);
-//    }
-//  };
-//  return db.query(patientCaseMapFun)
-//    .then(function(res) {
-//      var patientIds = res.rows
-//        .map(function(row) {
-//          return row.key;
-//        });
-//      var newPatients = patients.filter(function(p) {
-//        return patientIds.indexOf(p.patientId) === -1;
-//      });
-//      return newPatients;
-//    })
-//    .catch(function(err) {
-//      console.log(err);
-//    });
-//};
+var getNewPatients = function(dbUrl, patients) {
+  var db = new pouchdb(dbUrl);
+  var patientCaseMapFun = function(doc) {
+    if (doc.doc_type === 'case' && doc.patient) {
+      emit(doc.patient.patientId, doc);
+    }
+  };
+  return db.query(patientCaseMapFun)
+    .then(function(res) {
+      var patientIds = res.rows
+        .map(function(row) {
+          return row.key;
+        });
+      var newPatients = patients.filter(function(p) {
+        return patientIds.indexOf(p.patientId) === -1;
+      });
+      return newPatients;
+    })
+    .catch(function(err) {
+      console.log(err);
+    });
+};
 
 //Main Program
 
-//connection.on('connect', function(err) {
-//    if (err) {
-//      logger.error(err);
-//      return;
-//    }
-//    logger.info('Connection was successful.');
-//    setInterval(function() {
-//      if (inProgress === true) {
-//        logger.info('Last job is still in progress.');
-//        return;
-//      }
-//      pullAndPushToCouchdb();
-//    }, DELAY);
-//  }
-//);
+connection.on('connect', function(err) {
+    if (err) {
+      logger.error(err);
+      return;
+    }
+    logger.info('Connection was successful.');
+    setInterval(function() {
+      if (inProgress === true) {
+        logger.info('Last job is still in progress.');
+        return;
+      }
+      pullAndPushToCouchdb();
+    }, DELAY);
+  }
+);
 
 //replicateLocalToRemote();
 
@@ -475,172 +472,172 @@ var postToLocalCouch = function(sqlCases) {
 //
 
 
-var request = require('request');
-
-var getCasesByContactId = function(contacts) {
-  var Ids = contacts.map(function(c) {
-    return c.contact.contactId;
-  });
-  var dfd = q.defer();
-  var url = [
-    DEV_DB,
-    '_design/cases/_view/by_contact_id?keys=',
-    JSON.stringify(Ids),
-    '&include_docs=true'
-  ].join('');
-  url = encodeURI(url);
-  request(url, function(error, response, body) {
-    if (!error && response.statusCode == 200) {
-      var rows = JSON.parse(body).rows;
-      var caseContactIds = rows.map(function(row) {
-        return row.key;
-      });
-      var newCases = contacts.filter(function(c) {
-        return caseContactIds.indexOf(c.contact.contactId) === -1;
-      });
-      dfd.resolve(newCases);
-    } else {
-      dfd.reject(error);
-    }
-  });
-  return dfd.promise;
-};
-
-
-var contact = {
-  "_id": "DF3B33D0-C8DA-3C85-8CF9-1B5FC25603A9",
-  "_rev": "1-4e70b7dec34f8caa859c74d57b64d3c4",
-  "doc_type": "case",
-  "patient": {
-    "doc_type": "patient",
-    "patientId": "P092100855",
-    "patientName": "",
-    "age": 0,
-    "gender": "M",
-    "address": "NO1 BODY BLANGO STREET",
-    "provinceCode": "S",
-    "districtCode": "03",
-    "chiefdomCode": "08",
-    "phoneNo": "",
-    "familyPhoneNo": "",
-    "createdBy": "ELEA",
-    "createdOn": "2014-09-20T17:23:00.760Z",
-    "modifiedBy": null,
-    "contactId": "C092100859",
-    "patientStatus": null,
-    "modifiedOn": null
-  },
-  "contact": {
-    "doc_type": "contact",
-    "contactId": "1C092100859",
-    "name": "UMU JANNEH",
-    "address": "NO 2 BODY BLANGO STREET, NEAR MUSA TARAWALLIE STREET, MOYAMBA",
-    "province_code": "S",
-    "district_code": "03",
-    "chiefdom_code": "08",
-    "phoneNo": "077574833",
-    "otherPhoneNo": "",
-    "instituteName": null,
-    "instituteType": null,
-    "createdBy": "ELEA",
-    "createdOn": "2014-09-20T17:23:00.733Z",
-    "modifiedBy": "JOSE",
-    "modifiedOn": "2014-09-20T17:47:09.103Z",
-    "callNature": "OTHER",
-    "callDetails": "2 MEN APPEARED IN HER AREE AND SHE HAS NEVER SEEN THEM BEFORE, SHE IS A BIT SCARED CAUSE THEY ARE VERY ISOLATED",
-    "actionRequired": "SEND A SURVIELLANCE TEAM THERE",
-    "isPrankCall": false,
-    "caseStatus": "ACTION"
-  },
-  "response": {
-    "doc_type": "response",
-    "tranId": 21789,
-    "tranDate": "2014-09-20T17:44:32.880Z",
-    "patientId": "P092100855",
-    "contactId": "C092100859",
-    "teamName": "0",
-    "phoneNo": "0",
-    "phoneNo2": "0",
-    "vEmailID": "0",
-    "districtName": "0",
-    "actionRecommended": "NEED THE ATTENTION OF THE POLICE",
-    "teamFeedback": null,
-    "patientStatus": null,
-    "caseStatus": "open",
-    "createdBy": "MOHA4",
-    "createdOn": "2014-09-20T17:44:32.880Z",
-    "modifiedBy": null,
-    "modifiedOn": null
-  }
-};
-
-var ids = [contact];
-getCasesByContactId(ids)
-  .then(function(res) {
-    console.info(res);
-  })
-  .catch(function(err) {
-    console.error(err);
-  });
-
-var replicate = function(from, to, options) {
-  var url = 'https://ebola:nigeria@dev.couchdb.ebola.eocng.org/_replicate';
-  var dfd = q.defer();
-  var requestOptions = {
-    method: "POST",
-    uri: url,
-    json: { "source": from, "target": to }
-  };
-  request(requestOptions, function(err, res, body) {
-    if (err) {
-      dfd.reject(err);
-    } else {
-      dfd.resolve(res.body);
-    }
-  });
-  return dfd.promise;
-};
-
-var bulkDocs = function(docs) {
-  var body = {
-    docs: docs
-  };
-  var dfd = q.defer();
-  var url = [ 'https://ebola:nigeria@dev.couchdb.ebola.eocng.org/alert_tests/', '_bulk_docs'].join('');
-  var requestOptions = {
-    method: "POST",
-    uri: url,
-    json: body
-  }
-  request(requestOptions, function(err, res, body) {
-    if (err) {
-      dfd.reject(err);
-    } else {
-      dfd.resolve(res.body);
-    }
-  });
-  return dfd.promise;
-};
-
-var docs = [
-  {doc_type: 'test'}
-];
-
-bulkDocs(docs)
-
-//replicate();
-
-//return;
 //var request = require('request');
-//var url = encodeURI(DEV_DB + '_design/cases/_view/by_contact_id?keys=["0000D2C6-340F-A193-AA4B-6A44DF3F85D7", "ZS F"]&include_docs=true');
-//console.log(url);
+//
+//var getCasesByContactId = function(contacts) {
+//  var Ids = contacts.map(function(c) {
+//    return c.contact.contactId;
+//  });
+//  var dfd = q.defer();
+//  var url = [
+//    DEV_DB,
+//    '_design/cases/_view/by_contact_id?keys=',
+//    JSON.stringify(Ids),
+//    '&include_docs=true'
+//  ].join('');
+//  url = encodeURI(url);
+//  request(url, function(error, response, body) {
+//    if (!error && response.statusCode == 200) {
+//      var rows = JSON.parse(body).rows;
+//      var caseContactIds = rows.map(function(row) {
+//        return row.key;
+//      });
+//      var newCases = contacts.filter(function(c) {
+//        return caseContactIds.indexOf(c.contact.contactId) === -1;
+//      });
+//      dfd.resolve(newCases);
+//    } else {
+//      dfd.reject(error);
+//    }
+//  });
+//  return dfd.promise;
+//};
 //
 //
-//request(url, function(error, response, body) {
-//  if (!error && response.statusCode == 200) {
-//    console.log(body)
-//  } else {
-//    console.log(error);
+//var contact = {
+//  "_id": "DF3B33D0-C8DA-3C85-8CF9-1B5FC25603A9",
+//  "_rev": "1-4e70b7dec34f8caa859c74d57b64d3c4",
+//  "doc_type": "case",
+//  "patient": {
+//    "doc_type": "patient",
+//    "patientId": "P092100855",
+//    "patientName": "",
+//    "age": 0,
+//    "gender": "M",
+//    "address": "NO1 BODY BLANGO STREET",
+//    "provinceCode": "S",
+//    "districtCode": "03",
+//    "chiefdomCode": "08",
+//    "phoneNo": "",
+//    "familyPhoneNo": "",
+//    "createdBy": "ELEA",
+//    "createdOn": "2014-09-20T17:23:00.760Z",
+//    "modifiedBy": null,
+//    "contactId": "C092100859",
+//    "patientStatus": null,
+//    "modifiedOn": null
+//  },
+//  "contact": {
+//    "doc_type": "contact",
+//    "contactId": "1C092100859",
+//    "name": "UMU JANNEH",
+//    "address": "NO 2 BODY BLANGO STREET, NEAR MUSA TARAWALLIE STREET, MOYAMBA",
+//    "province_code": "S",
+//    "district_code": "03",
+//    "chiefdom_code": "08",
+//    "phoneNo": "077574833",
+//    "otherPhoneNo": "",
+//    "instituteName": null,
+//    "instituteType": null,
+//    "createdBy": "ELEA",
+//    "createdOn": "2014-09-20T17:23:00.733Z",
+//    "modifiedBy": "JOSE",
+//    "modifiedOn": "2014-09-20T17:47:09.103Z",
+//    "callNature": "OTHER",
+//    "callDetails": "2 MEN APPEARED IN HER AREE AND SHE HAS NEVER SEEN THEM BEFORE, SHE IS A BIT SCARED CAUSE THEY ARE VERY ISOLATED",
+//    "actionRequired": "SEND A SURVIELLANCE TEAM THERE",
+//    "isPrankCall": false,
+//    "caseStatus": "ACTION"
+//  },
+//  "response": {
+//    "doc_type": "response",
+//    "tranId": 21789,
+//    "tranDate": "2014-09-20T17:44:32.880Z",
+//    "patientId": "P092100855",
+//    "contactId": "C092100859",
+//    "teamName": "0",
+//    "phoneNo": "0",
+//    "phoneNo2": "0",
+//    "vEmailID": "0",
+//    "districtName": "0",
+//    "actionRecommended": "NEED THE ATTENTION OF THE POLICE",
+//    "teamFeedback": null,
+//    "patientStatus": null,
+//    "caseStatus": "open",
+//    "createdBy": "MOHA4",
+//    "createdOn": "2014-09-20T17:44:32.880Z",
+//    "modifiedBy": null,
+//    "modifiedOn": null
 //  }
-//})
-
+//};
+//
+//var ids = [contact];
+//getCasesByContactId(ids)
+//  .then(function(res) {
+//    console.info(res);
+//  })
+//  .catch(function(err) {
+//    console.error(err);
+//  });
+//
+//var replicate = function(from, to, options) {
+//  var url = 'https://ebola:nigeria@dev.couchdb.ebola.eocng.org/_replicate';
+//  var dfd = q.defer();
+//  var requestOptions = {
+//    method: "POST",
+//    uri: url,
+//    json: { "source": from, "target": to }
+//  };
+//  request(requestOptions, function(err, res, body) {
+//    if (err) {
+//      dfd.reject(err);
+//    } else {
+//      dfd.resolve(res.body);
+//    }
+//  });
+//  return dfd.promise;
+//};
+//
+//var bulkDocs = function(docs) {
+//  var body = {
+//    docs: docs
+//  };
+//  var dfd = q.defer();
+//  var url = [ 'https://ebola:nigeria@dev.couchdb.ebola.eocng.org/alert_tests/', '_bulk_docs'].join('');
+//  var requestOptions = {
+//    method: "POST",
+//    uri: url,
+//    json: body
+//  }
+//  request(requestOptions, function(err, res, body) {
+//    if (err) {
+//      dfd.reject(err);
+//    } else {
+//      dfd.resolve(res.body);
+//    }
+//  });
+//  return dfd.promise;
+//};
+//
+//var docs = [
+//  {doc_type: 'test'}
+//];
+//
+//bulkDocs(docs)
+//
+////replicate();
+//
+////return;
+////var request = require('request');
+////var url = encodeURI(DEV_DB + '_design/cases/_view/by_contact_id?keys=["0000D2C6-340F-A193-AA4B-6A44DF3F85D7", "ZS F"]&include_docs=true');
+////console.log(url);
+////
+////
+////request(url, function(error, response, body) {
+////  if (!error && response.statusCode == 200) {
+////    console.log(body)
+////  } else {
+////    console.log(error);
+////  }
+////})
+//
