@@ -18,8 +18,8 @@ log4js.configure({
   ]
 });
 var logger = log4js.getLogger(LOG_CATEGORY);
-var DELAY = 1000;///120000;//2 mins
-var LOCAL_DB = 'sl_local';
+var DELAY = 600000;//10 mins interval.
+var LOCAL_DB = process.env.LOCAL_DB;
 var DEV_DB = process.env.DB_URL;
 var PROD_DB = process.env.PROD_DB;
 var SQL_USER = process.env.SQL_USER;
@@ -260,14 +260,13 @@ function pullAndPushToCouchdb() {
         return recordToDoc(patientTable, row);
       })
       .filter(function(p){
-        return p.patientId !== 'P090400008' || p.patientId !== 'Y092300187';
+        return new Date(p.createdOn) >= new Date('2014-10-03');
       });
     generateCases(patients)
       .then(function(cases){
-        getNewCases(PROD_DB, cases)
+        getNewCases(LOCAL_DB, cases)
          .then(function(newCases){
-            console.log(newCases.length+' new cases.');
-            bulkDocs(PROD_DB, newCases)
+            bulkDocs(LOCAL_DB, newCases)
             .then(function(res){
               if('length' in  res){
                 logger.info(res.length+' cases uploaded to couchdb.');
@@ -345,12 +344,12 @@ var bulkDocs = function(db, docs) {
 };
 
 
-
 //Main Program
-
-connection.on('connect', function(err) {
+connection
+ .on('connect', function(err) {
    if (err) {
      logger.error(err);
+     connection = new Connection(config);
      return;
    }
    logger.info('Connection was successful.');
@@ -358,8 +357,24 @@ connection.on('connect', function(err) {
      if (inProgress === true) {
        return;
      }
-     pullAndPushToCouchdb();
+     try{
+      pullAndPushToCouchdb();
+    }catch(err){
+      logger.error(err);
+      inProgress = false;
+    }
    }, DELAY);
  }
-);
+)
+ .on('end', function(){
+    inProgress = false;
+    logger.error('Server restart or shutdown.');
+    connection = new Connection(config);
+ })
+ .on('error', function(err){
+    inProgress = false;
+    logger.error(err);
+    connection = new Connection(config);
+ });
+
 
